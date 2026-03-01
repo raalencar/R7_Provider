@@ -10,7 +10,7 @@ RUN npm ci
 
 COPY . .
 RUN npx prisma generate --config prisma/prisma.config.ts
-RUN npm run build
+RUN npm run build && test -f /app/dist/main.js || (echo "ERROR: dist/main.js not found after build" && exit 1)
 
 ENV NODE_ENV=production
 EXPOSE 3100
