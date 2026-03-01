@@ -2,7 +2,7 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "npm run start:prod"
+startCommand = "npx prisma migrate deploy --config prisma/prisma.config.ts && npm run start:prod"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
