@@ -16,6 +16,14 @@ export class HealthController {
   @Get()
   @ApiOperation({ summary: 'Status do serviço e providers conectados' })
   async check() {
+    // Ping no banco
+    let dbStatus: 'ok' | 'error' = 'ok';
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+    } catch {
+      dbStatus = 'error';
+    }
+
     const allTenants = await this.prisma.tenantProvider.findMany({
       select: { tenantId: true, providerType: true, config: true },
     });
@@ -34,9 +42,11 @@ export class HealthController {
     );
 
     const allConnected = providerStatuses.every((p) => p.connected);
+    const overallOk = dbStatus === 'ok' && (allConnected || providerStatuses.length === 0);
 
     return {
-      status: allConnected || providerStatuses.length === 0 ? 'ok' : 'degraded',
+      status: overallOk ? 'ok' : 'degraded',
+      db: dbStatus,
       uptime: Math.floor((Date.now() - this.startTime) / 1000),
       timestamp: new Date().toISOString(),
       providers: providerStatuses,
