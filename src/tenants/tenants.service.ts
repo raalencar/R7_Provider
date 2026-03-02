@@ -51,7 +51,7 @@ export class TenantsService {
 
     const encryptedConfig = this.encrypt(dto.config);
 
-    return this.prisma.tenantProvider.create({
+    const tenant = await this.prisma.tenantProvider.create({
       data: {
         tenantId: dto.tenantId,
         providerType: dto.providerType,
@@ -59,6 +59,21 @@ export class TenantsService {
         config: encryptedConfig,
       },
     });
+
+    // Auto-criar instância no provider (melhor esforço — não bloqueia em caso de falha)
+    let qrcode: string | undefined;
+    try {
+      const config = this.decrypt(encryptedConfig);
+      const provider = this.instantiateProvider(dto.providerType, config);
+      if (provider.createInstance) {
+        const result = await provider.createInstance();
+        qrcode = result.qrcode;
+      }
+    } catch {
+      // falha silenciosa — instância pode ser criada manualmente depois
+    }
+
+    return { ...tenant, ...(qrcode ? { qrcode } : {}) };
   }
 
   async findOne(tenantId: string) {

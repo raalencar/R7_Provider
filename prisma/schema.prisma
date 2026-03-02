@@ -33,3 +33,17 @@ enum ProviderType {
   ZAPI
   SENDPULSE
 }
+
+model MessageLog {
+  id        String   @id @default(cuid())
+  tenantId  String
+  phone     String
+  type      String
+  messageId String?
+  success   Boolean
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([createdAt])
+}

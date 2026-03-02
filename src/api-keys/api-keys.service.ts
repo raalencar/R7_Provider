@@ -38,6 +38,14 @@ export class ApiKeysService {
     });
   }
 
+  async rotate(id: string) {
+    const record = await this.prisma.apiKey.findUnique({ where: { id } });
+    if (!record) throw new NotFoundException(`API Key '${id}' não encontrada`);
+    const newKey = this.generateKey();
+    await this.prisma.apiKey.update({ where: { id }, data: { key: newKey } });
+    return { id, key: newKey, label: record.label, tenantId: record.tenantId };
+  }
+
   async remove(id: string) {
     const record = await this.prisma.apiKey.findUnique({ where: { id } });
     if (!record) throw new NotFoundException(`API Key '${id}' não encontrada`);

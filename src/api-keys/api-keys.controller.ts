@@ -41,6 +41,13 @@ export class ApiKeysController {
     return this.service.findAll(tenantId);
   }
 
+  @Post(':id/rotate')
+  @ApiOperation({ summary: 'Rotacionar API Key — gera nova key, retorna em texto claro (única vez)' })
+  rotate(@Param('id') id: string, @Request() req: { isMaster: boolean }) {
+    if (!req.isMaster) throw new ForbiddenException('Apenas master key pode rotacionar API keys');
+    return this.service.rotate(id);
+  }
+
   @Patch(':id/revoke')
   @ApiOperation({ summary: 'Revogar API Key (desativa sem deletar)' })
   revoke(@Param('id') id: string, @Request() req: { isMaster: boolean }) {

@@ -30,4 +30,5 @@ export interface WhatsappGatewayProvider {
   ): Promise<SendMessageResult>;
   sendLink(phone: string, url: string, title?: string): Promise<SendMessageResult>;
   checkStatus(): Promise<ProviderStatus>;
+  createInstance?(): Promise<{ qrcode?: string }>;
 }

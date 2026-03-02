@@ -124,4 +124,23 @@ export class EvolutionProvider implements WhatsappGatewayProvider {
       return { connected: false };
     }
   }
+
+  async createInstance(): Promise<{ qrcode?: string }> {
+    try {
+      const { data } = await this.client.post('/instance/create', {
+        instanceName: this.instance,
+        qrcode: true,
+      });
+      const qrcode: string | undefined =
+        data?.qrcode?.base64 ?? data?.base64 ?? undefined;
+      return { qrcode };
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 409) return {}; // instância já existe
+      throw new HttpException(
+        'Falha ao criar instância na Evolution API',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+  }
 }

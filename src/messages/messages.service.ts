@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantsService } from '../tenants/tenants.service';
+import { SendMessageResult } from '../providers/provider.interface';
 
 @Injectable()
 export class MessagesService {
@@ -19,22 +20,53 @@ export class MessagesService {
     return this.tenants.instantiateProvider(tenant.providerType, config);
   }
 
+  private async logAndSend<T extends SendMessageResult>(
+    tenantId: string,
+    phone: string,
+    type: string,
+    fn: () => Promise<T>,
+  ): Promise<{ success: true } & T> {
+    let result: T | undefined;
+    let errorMsg: string | undefined;
+    try {
+      result = await fn();
+      return { success: true, ...result };
+    } catch (err) {
+      errorMsg = err instanceof Error ? err.message : String(err);
+      throw err;
+    } finally {
+      await this.prisma.messageLog.create({
+        data: {
+          tenantId,
+          phone,
+          type,
+          messageId: result?.messageId,
+          success: errorMsg === undefined,
+          error: errorMsg,
+        },
+      });
+    }
+  }
+
   async sendText(tenantId: string, phone: string, message: string) {
     const provider = await this.getProvider(tenantId);
-    const result = await provider.sendText(phone, message);
-    return { success: true, ...result, provider: 'resolved' };
+    return this.logAndSend(tenantId, phone, 'text', () =>
+      provider.sendText(phone, message),
+    );
   }
 
   async sendImage(tenantId: string, phone: string, url: string, caption?: string) {
     const provider = await this.getProvider(tenantId);
-    const result = await provider.sendImage(phone, url, caption);
-    return { success: true, ...result };
+    return this.logAndSend(tenantId, phone, 'image', () =>
+      provider.sendImage(phone, url, caption),
+    );
   }
 
   async sendAudio(tenantId: string, phone: string, url: string) {
     const provider = await this.getProvider(tenantId);
-    const result = await provider.sendAudio(phone, url);
-    return { success: true, ...result };
+    return this.logAndSend(tenantId, phone, 'audio', () =>
+      provider.sendAudio(phone, url),
+    );
   }
 
   async sendLocation(
@@ -46,8 +78,9 @@ export class MessagesService {
     address?: string,
   ) {
     const provider = await this.getProvider(tenantId);
-    const result = await provider.sendLocation(phone, lat, lng, title, address);
-    return { success: true, ...result };
+    return this.logAndSend(tenantId, phone, 'location', () =>
+      provider.sendLocation(phone, lat, lng, title, address),
+    );
   }
 
   async sendTemplate(
@@ -57,8 +90,9 @@ export class MessagesService {
     variables: string[],
   ) {
     const provider = await this.getProvider(tenantId);
-    const result = await provider.sendTemplate(phone, template, variables);
-    return { success: true, ...result };
+    return this.logAndSend(tenantId, phone, 'template', () =>
+      provider.sendTemplate(phone, template, variables),
+    );
   }
 
   async sendButtons(
@@ -68,13 +102,15 @@ export class MessagesService {
     buttons: { id: string; label: string }[],
   ) {
     const provider = await this.getProvider(tenantId);
-    const result = await provider.sendButtons(phone, text, buttons);
-    return { success: true, ...result };
+    return this.logAndSend(tenantId, phone, 'buttons', () =>
+      provider.sendButtons(phone, text, buttons),
+    );
   }
 
   async sendLink(tenantId: string, phone: string, url: string, title?: string) {
     const provider = await this.getProvider(tenantId);
-    const result = await provider.sendLink(phone, url, title);
-    return { success: true, ...result };
+    return this.logAndSend(tenantId, phone, 'link', () =>
+      provider.sendLink(phone, url, title),
+    );
   }
 }
