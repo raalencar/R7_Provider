@@ -1,14 +1,19 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { EvolutionProvider } from '../providers/evolution/evolution.provider';
 import * as crypto from 'crypto';
+
+const TENANT_TTL_MS = 5 * 60 * 1000; // 5 minutos
 
 @Injectable()
 export class TenantsService {
@@ -17,7 +22,12 @@ export class TenantsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    @Inject(CACHE_MANAGER) private readonly cache: Cache,
   ) {}
+
+  private cacheKey(tenantId: string) {
+    return `tenant:${tenantId}`;
+  }
 
   private get encryptionKey(): Buffer {
     const key = this.config.get<string>('ENCRYPTION_KEY');
@@ -92,6 +102,8 @@ export class TenantsService {
     if (dto.webhookUrl !== undefined) data.webhookUrl = dto.webhookUrl;
     if (dto.config) data.config = this.encrypt(dto.config);
 
+    await this.cache.del(this.cacheKey(tenantId));
+
     return this.prisma.tenantProvider.update({
       where: { tenantId },
       data,
@@ -100,6 +112,7 @@ export class TenantsService {
 
   async remove(tenantId: string) {
     await this.findOne(tenantId);
+    await this.cache.del(this.cacheKey(tenantId));
     return this.prisma.tenantProvider.delete({ where: { tenantId } });
   }
 
@@ -109,6 +122,31 @@ export class TenantsService {
     const provider = this.instantiateProvider(tenant.providerType, config);
     const status = await provider.checkStatus();
     return { tenantId, providerType: tenant.providerType, ...status };
+  }
+
+  // Busca com cache — usado pelo MessagesService em todo envio
+  async getProviderForTenant(tenantId: string) {
+    type CachedTenant = { providerType: string; config: string };
+
+    const cached = await this.cache.get<CachedTenant>(this.cacheKey(tenantId));
+    if (cached) {
+      const config = this.decrypt(cached.config);
+      return this.instantiateProvider(cached.providerType, config);
+    }
+
+    const tenant = await this.prisma.tenantProvider.findUnique({
+      where: { tenantId },
+    });
+    if (!tenant) throw new NotFoundException(`Tenant '${tenantId}' não encontrado`);
+
+    await this.cache.set(
+      this.cacheKey(tenantId),
+      { providerType: tenant.providerType, config: tenant.config },
+      TENANT_TTL_MS,
+    );
+
+    const config = this.decrypt(tenant.config as string);
+    return this.instantiateProvider(tenant.providerType, config);
   }
 
   getDecryptedConfig(tenant: { providerType: string; config: unknown }) {

@@ -1,72 +1,49 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { Injectable } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { TenantsService } from '../tenants/tenants.service';
-import { SendMessageResult } from '../providers/provider.interface';
+import { MessageJob } from './messages.processor';
 
 @Injectable()
 export class MessagesService {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly tenants: TenantsService,
+    @InjectQueue('messages') private readonly queue: Queue<MessageJob>,
   ) {}
 
-  private async getProvider(tenantId: string) {
-    const tenant = await this.prisma.tenantProvider.findUnique({
-      where: { tenantId },
+  private async enqueue(tenantId: string, phone: string, type: string, payload: Record<string, unknown>) {
+    const job = await this.queue.add(type, { tenantId, phone, type, payload }, {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2000 },
+      removeOnComplete: 100,
+      removeOnFail: 200,
     });
-    if (!tenant) throw new NotFoundException(`Tenant '${tenantId}' não encontrado`);
-
-    const config = this.tenants.getDecryptedConfig(tenant);
-    return this.tenants.instantiateProvider(tenant.providerType, config);
+    return { jobId: job.id, status: 'queued' };
   }
 
-  private async logAndSend<T extends SendMessageResult>(
-    tenantId: string,
-    phone: string,
-    type: string,
-    fn: () => Promise<T>,
-  ): Promise<{ success: true } & T> {
-    let result: T | undefined;
-    let errorMsg: string | undefined;
-    try {
-      result = await fn();
-      return { success: true, ...result };
-    } catch (err) {
-      errorMsg = err instanceof Error ? err.message : String(err);
-      throw err;
-    } finally {
-      await this.prisma.messageLog.create({
-        data: {
-          tenantId,
-          phone,
-          type,
-          messageId: result?.messageId,
-          success: errorMsg === undefined,
-          error: errorMsg,
-        },
-      });
-    }
+  async getJobStatus(jobId: string) {
+    const job = await this.queue.getJob(jobId);
+    if (!job) return { jobId, status: 'not_found' };
+    const state = await job.getState();
+    return {
+      jobId,
+      status: state,
+      result: job.returnvalue ?? undefined,
+      failedReason: job.failedReason ?? undefined,
+      attemptsMade: job.attemptsMade,
+    };
   }
 
   async sendText(tenantId: string, phone: string, message: string) {
-    const provider = await this.getProvider(tenantId);
-    return this.logAndSend(tenantId, phone, 'text', () =>
-      provider.sendText(phone, message),
-    );
+    return this.enqueue(tenantId, phone, 'text', { message });
   }
 
   async sendImage(tenantId: string, phone: string, url: string, caption?: string) {
-    const provider = await this.getProvider(tenantId);
-    return this.logAndSend(tenantId, phone, 'image', () =>
-      provider.sendImage(phone, url, caption),
-    );
+    return this.enqueue(tenantId, phone, 'image', { url, caption });
   }
 
   async sendAudio(tenantId: string, phone: string, url: string) {
-    const provider = await this.getProvider(tenantId);
-    return this.logAndSend(tenantId, phone, 'audio', () =>
-      provider.sendAudio(phone, url),
-    );
+    return this.enqueue(tenantId, phone, 'audio', { url });
   }
 
   async sendLocation(
@@ -77,40 +54,18 @@ export class MessagesService {
     title?: string,
     address?: string,
   ) {
-    const provider = await this.getProvider(tenantId);
-    return this.logAndSend(tenantId, phone, 'location', () =>
-      provider.sendLocation(phone, lat, lng, title, address),
-    );
+    return this.enqueue(tenantId, phone, 'location', { lat, lng, title, address });
   }
 
-  async sendTemplate(
-    tenantId: string,
-    phone: string,
-    template: string,
-    variables: string[],
-  ) {
-    const provider = await this.getProvider(tenantId);
-    return this.logAndSend(tenantId, phone, 'template', () =>
-      provider.sendTemplate(phone, template, variables),
-    );
+  async sendTemplate(tenantId: string, phone: string, template: string, variables: string[]) {
+    return this.enqueue(tenantId, phone, 'template', { template, variables });
   }
 
-  async sendButtons(
-    tenantId: string,
-    phone: string,
-    text: string,
-    buttons: { id: string; label: string }[],
-  ) {
-    const provider = await this.getProvider(tenantId);
-    return this.logAndSend(tenantId, phone, 'buttons', () =>
-      provider.sendButtons(phone, text, buttons),
-    );
+  async sendButtons(tenantId: string, phone: string, text: string, buttons: { id: string; label: string }[]) {
+    return this.enqueue(tenantId, phone, 'buttons', { text, buttons });
   }
 
   async sendLink(tenantId: string, phone: string, url: string, title?: string) {
-    const provider = await this.getProvider(tenantId);
-    return this.logAndSend(tenantId, phone, 'link', () =>
-      provider.sendLink(phone, url, title),
-    );
+    return this.enqueue(tenantId, phone, 'link', { url, title });
   }
 }

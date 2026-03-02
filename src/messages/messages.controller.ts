@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Request, UseGuards } from '@nestjs/common';
 import { ApiKeyGuard } from '../auth/auth.guard';
 import { MessagesService } from './messages.service';
 import { SendTextDto } from './dto/send-text.dto';
@@ -74,5 +74,11 @@ export class MessagesController {
   @ApiOperation({ summary: 'Enviar link' })
   sendLink(@Body() dto: SendLinkDto, @Request() req: { tenantId: string }) {
     return this.service.sendLink(req.tenantId, dto.phone, dto.url, dto.title);
+  }
+
+  @Get('jobs/:jobId')
+  @ApiOperation({ summary: 'Consultar status de um job de mensagem na fila' })
+  getJobStatus(@Param('jobId') jobId: string) {
+    return this.service.getJobStatus(jobId);
   }
 }
